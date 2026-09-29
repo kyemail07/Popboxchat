@@ -3624,7 +3624,7 @@
         let bansRef, globalBansRef, registeredUsersRef;
         let userLocksRef, adminPasswordsRef, customCommandsRef, adminListRef;
         let playlistRef, profilesRef, blocksRef, reportsRef;
-        let adLinksRef, pendingMessagesRef;
+        let adLinksRef;
         let typingRef;
 
         let cachedOnlineUsers = {};
@@ -3684,7 +3684,6 @@
         const PING_INTERVAL = 30000;
         const MESSAGE_LIMIT = 15;
         const ONLINE_THRESHOLD = 60000;
-        const CACHE_SIZE_LIMIT = 5 * 1024 * 1025;
         
         let dailyWriteCount = 0;
         let lastWriteReset = Date.now();
@@ -4164,28 +4163,6 @@
             }, 50);
         }
 
-        // ========== BEKLEYEN MESAJLAR (ÇEVRİMDIŞI MESAJ) ==========
-        async function sendPendingMessage(toUser, messageData) {
-            if (!currentUser || !pendingMessagesRef) return false;
-            try {
-                const userSnap = await usersRef.child(toUser).once('value');
-                const userData = userSnap.val();
-                const isOnline = userData && (Date.now() - (userData.lastSeen || 0) < ONLINE_THRESHOLD);
-                
-                if (isOnline) {
-                    const chatId = generateChatId(currentUser.name, toUser);
-                    await privateChatsRef.child(chatId).push(messageData);
-                    return true;
-                } else {
-                    addSystemMessage(`❌ ${toUser} çevrimdışı. Mesaj gönderilemedi.`);
-                    return false;
-                }
-            } catch (error) {
-                console.error("Mesaj gönderme hatası:", error);
-                return false;
-            }
-        }
-
         // ========== ÖZEL SOHBET FONKSİYONLARI ==========
         async function openPrivateChat(username) {
             if (username === currentUser.name) {
@@ -4381,19 +4358,18 @@
                     isRead: false
                 };
                 
-                const sent = await sendPendingMessage(privateChatWith, messageData);
-                if (sent) {
-                    incrementWriteCount();
-                    input.value = '';
-                    autoResize(input);
-                    
-                    if (typingTimeout[currentPrivateChatId]) clearTimeout(typingTimeout[currentPrivateChatId]);
-                    if (typingRef) typingRef.child(currentPrivateChatId).child(currentUser.name).remove();
-                    
-                    if (usersRef) usersRef.child(currentUser.name).update({ lastSeen: Date.now() });
-                    
-                    setTimeout(() => archiveAndTrimPrivateChat(currentPrivateChatId), 500);
-                }
+                const chatId = generateChatId(currentUser.name, privateChatWith);
+                await privateChatsRef.child(chatId).push(messageData);
+                incrementWriteCount();
+                input.value = '';
+                autoResize(input);
+                
+                if (typingTimeout[currentPrivateChatId]) clearTimeout(typingTimeout[currentPrivateChatId]);
+                if (typingRef) typingRef.child(currentPrivateChatId).child(currentUser.name).remove();
+                
+                if (usersRef) usersRef.child(currentUser.name).update({ lastSeen: Date.now() });
+                
+                setTimeout(() => archiveAndTrimPrivateChat(currentPrivateChatId), 500);
             } catch (error) {
                 console.error('Mesaj gönderme hatası:', error);
                 addSystemMessage('❌ Mesaj gönderilemedi!');
@@ -4555,12 +4531,11 @@
                             time: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
                             isRead: false
                         };
-                        const sent = await sendPendingMessage(privateChatWith, messageData);
-                        if (sent) {
-                            incrementWriteCount();
-                            addNotification(privateChatWith, '📸 Resim gönderdi', 'private');
-                            await archiveAndTrimPrivateChat(currentPrivateChatId);
-                        }
+                        const chatId = generateChatId(currentUser.name, privateChatWith);
+                        await privateChatsRef.child(chatId).push(messageData);
+                        incrementWriteCount();
+                        addNotification(privateChatWith, '📸 Resim gönderdi', 'private');
+                        await archiveAndTrimPrivateChat(currentPrivateChatId);
                     } catch (imageError) {
                         console.error('Resim gönderme hatası:', imageError);
                         alert('❌ Resim gönderilemedi!');
@@ -4604,12 +4579,11 @@
                             time: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
                             isRead: false
                         };
-                        const sent = await sendPendingMessage(privateChatWith, messageData);
-                        if (sent) {
-                            incrementWriteCount();
-                            addNotification(privateChatWith, '📸 Fotoğraf çekti', 'private');
-                            await archiveAndTrimPrivateChat(currentPrivateChatId);
-                        }
+                        const chatId = generateChatId(currentUser.name, privateChatWith);
+                        await privateChatsRef.child(chatId).push(messageData);
+                        incrementWriteCount();
+                        addNotification(privateChatWith, '📸 Fotoğraf çekti', 'private');
+                        await archiveAndTrimPrivateChat(currentPrivateChatId);
                     } catch (imageError) {
                         console.error('Resim gönderme hatası:', imageError);
                         alert('❌ Resim gönderilemedi!');
@@ -4658,13 +4632,12 @@
                             time: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
                             isRead: false
                         };
-                        const sent = await sendPendingMessage(privateChatWith, messageData);
-                        if (sent) {
-                            incrementWriteCount();
-                            addNotification(privateChatWith, '🎤 Sesli mesaj gönderdi', 'private');
-                            addSystemMessage('✅ Ses kaydı gönderildi!');
-                            await archiveAndTrimPrivateChat(currentPrivateChatId);
-                        }
+                        const chatId = generateChatId(currentUser.name, privateChatWith);
+                        await privateChatsRef.child(chatId).push(messageData);
+                        incrementWriteCount();
+                        addNotification(privateChatWith, '🎤 Sesli mesaj gönderdi', 'private');
+                        addSystemMessage('✅ Ses kaydı gönderildi!');
+                        await archiveAndTrimPrivateChat(currentPrivateChatId);
                     };
                     reader.readAsDataURL(audioBlob);
                     audioStream.getTracks().forEach(track => track.stop());
@@ -7104,7 +7077,6 @@
                         profilesRef = database.ref('profiles');
                         blocksRef = database.ref('blocks');
                         reportsRef = database.ref('reports');
-                        pendingMessagesRef = database.ref('pendingMessages');
                         adLinksRef = database.ref('adLinks');
                         typingRef = database.ref('typing');
 
